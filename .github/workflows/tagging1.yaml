@@ -1,4 +1,4 @@
-name: Automatic Version Bump
+name: Auto Tag & Release
 
 on:
   push:
@@ -6,45 +6,45 @@ on:
       - main
 
 jobs:
-  bump-version:
+  bump-and-release:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required to fetch tags
+          fetch-depth: 0   # required to fetch existing tags
 
-      - name: Setup git user
+      - name: Set up Git
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Get latest tag
-        id: get_latest_tag
+        id: latest
         run: |
           echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)" >> $GITHUB_OUTPUT
 
-      - name: Decide bump type
-        id: bump_type
+      - name: Detect bump type
+        id: bump
         run: |
-          message="${{ github.event.head_commit.message }}"
-          if echo "$message" | grep -q "#major"; then
+          msg="${{ github.event.head_commit.message }}"
+          if echo "$msg" | grep -q "#major"; then
             echo "type=major" >> $GITHUB_OUTPUT
-          elif echo "$message" | grep -q "#minor"; then
+          elif echo "$msg" | grep -q "#minor"; then
             echo "type=minor" >> $GITHUB_OUTPUT
           else
             echo "type=patch" >> $GITHUB_OUTPUT
           fi
 
-      - name: Bump version
-        id: bump_version
+      - name: Calculate new version
+        id: new
         run: |
-          current="${{ steps.get_latest_tag.outputs.tag }}"
-          version="${current#v}"
-          IFS='.' read -r major minor patch <<< "$version"
-
-          case "${{ steps.bump_type.outputs.type }}" in
+          current="${{ steps.latest.outputs.tag }}"
+          current="${current#v}"
+          IFS='.' read -r major minor patch <<< "$current"
+          
+          case "${{ steps.bump.outputs.type }}" in
             major)
               major=$((major+1)); minor=0; patch=0 ;;
             minor)
@@ -52,16 +52,19 @@ jobs:
             patch)
               patch=$((patch+1)) ;;
           esac
-
+          
           new="v${major}.${minor}.${patch}"
           echo "new_tag=$new" >> $GITHUB_OUTPUT
-          git tag "$new"
-          git push origin "$new"
+
+      - name: Create Tag
+        run: |
+          git tag "${{ steps.new.outputs.new_tag }}"
+          git push origin "${{ steps.new.outputs.new_tag }}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.bump_version.outputs.new_tag }}
+          tag_name: ${{ steps.new.outputs.new_tag }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
